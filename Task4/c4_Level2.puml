@@ -1,0 +1,52 @@
+@startuml Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+' Определение стилей
+HIDE_STEREOTYPE()
+
+title Диаграмма Контейнеров (Level 2) \n Разгрузка КЦ и Ставки
+
+' Определяем Внешние Системы
+System_Ext(sms_gateway, "СМС-Шлюз", "Внешний сервис")
+System_Ext(partner_sftp, "SFTP Сервер Партнёра", "Принимает файл ставок")
+System_Ext(partner_cc_system, "Система Партнёрского КЦ", "**Консультации для разгрузки внутреннего КЦ**, читает файл")
+
+' Определяем Контейнеры (Software Systems) внутри Банка
+System_Boundary(bank_system, "Банковская Система") {
+
+    ' Каналы (Фронт-энд)
+    Container(ib, "Интернет-Банк", "ASP.NET MVC 4.5", "Канал для существующих клиентов")
+    Container(cc_system, "Система Кол-центра (Внутр.)", "React.js, Java Spring Boot", "Интерфейс менеджера для консультаций")
+
+    ' Новый Интеграционный Слой (Микросервисы)
+    Container(api_gw, "API Gateway / Service Bus", "Java Spring Boot", "Единая точка входа")
+    Container(src, "Сервис Расчета Ставок (СРС)", "Java Spring Boot, PostgreSQL/MS SQL", "**Центральный источник актуальных ставок**")
+    Container(sds, "Сервис Дистрибуции Ставок (СДС)", "Java Spring Boot", "**Формирует и передает файл ставок партнеру**")
+    ContainerQueue(kafka, "Kafka", "Очередь сообщений", "Асинхронность")
+    Container(soz, "Сервис Оркестрации Заявок (СОЗ)", "Java Spring Boot", "Управление ЖЦ заявки")
+
+    ' Устаревший Монолит (Ядро)
+    Container(abs, "АБС", "Delphi, PL/SQL", "Ядро операций, финальное открытие депозита")
+    ContainerDb(abs_db, "БД АБС", "Oracle", "Хранение данных")
+}
+
+' Отношения между Контейнерами и Внешними Объектами
+
+' 1. Запрос Ставок (Быстрое API)
+Rel(ib, api_gw, "Запрос ставок/заявки", "HTTPS")
+Rel(cc_system, src, "Запрос актуальных/общих ставок", "**API (быстрые консультации)**")
+
+' 2. Дистрибуция Ставок Партнёру (Разгрузка КЦ)
+Rel(src, sds, "Предоставляет актуальные ставки для экспорта")
+Rel_R(sds, partner_sftp, "Передает файл ставок", "SFTP")
+Rel(partner_sftp, partner_cc_system, "Читает файл ставок")
+
+' 3. Оркестрация
+Rel(api_gw, kafka, "Отправляет заявку на открытие депозита")
+Rel(kafka, soz, "Получает заявку на обработку")
+Rel(soz, abs, "Подает команду на открытие депозита")
+Rel(src, abs, "Получает данные о кредитном риске")
+Rel(abs, sms_gateway, "Отправляет команду на СМС-оповещение")
+Rel_U(abs, abs_db, "Читает и записывает данные")
+
+@enduml
